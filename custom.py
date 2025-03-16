@@ -270,7 +270,7 @@ class ReversiAgent:
         return best_eval, best_move
 
     ### NEW: Iterative Monte Carlo Simulation ###
-    def monte_carlo_simulation(self, board, player, time_limit=4.99, batch_size=100):
+    def monte_carlo_simulation(self, board, player, time_limit=4.99, batch_size=150):
         logging.debug("Using Monte Carlo Simulation (Late Game)")
         legal_moves = self.get_legal_moves(board, player)
         logging.debug(f"Legal moves found: {legal_moves}")
@@ -371,9 +371,9 @@ class ReversiAgent:
         piece_count = np.count_nonzero(board)
         self.board_cache.clear()  # Clear cache each move
 
-        if piece_count < 20:
+        if piece_count < 15:
             best_move = self.greedy_move(board, player)
-        elif piece_count < 35:
+        elif piece_count < 25:
             logging.debug("Using Minimax (Mid Game)")
             if self.use_parallel_minimax:
                 _, best_move = self.iterative_deepening_parallel(board, player, time_limit=4.99)
