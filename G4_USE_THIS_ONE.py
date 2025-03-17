@@ -1,15 +1,21 @@
+import logging
+import multiprocessing
+import pickle
+import random
+import socket
+import time
+
 import numpy as np
-import socket, pickle, random, multiprocessing, time, logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from reversi import reversi
 
 # ===================== PARAMETERS =====================
-DEBUG_LOG = True               # Enable/disable debug logging
-MINIMAX_TIME_LIMIT = 5.0         # Time limit (in seconds) for minimax iterative deepening
-MCTS_TIME_LIMIT = 4.99           # Time limit (in seconds) for Monte Carlo simulation
-MC_PROCESSES = 1                # Number of processes for Monte Carlo simulation (set to 1 to disable parallelism)
-MC_BATCH_SIZE = 1000            # Batch size for Monte Carlo simulation iterations
-MAX_MINIMAX_DEPTH = 4            # Maximum search depth for minimax
+DEBUG_LOG = True  # Enable/disable debug logging
+MINIMAX_TIME_LIMIT = 5.0  # Time limit (in seconds) for minimax iterative deepening
+MCTS_TIME_LIMIT = 4.99  # Time limit (in seconds) for Monte Carlo simulation
+MC_PROCESSES = 1  # Number of processes for Monte Carlo simulation (set to 1 to disable parallelism)
+MC_BATCH_SIZE = 1000  # Batch size for Monte Carlo simulation iterations
+MAX_MINIMAX_DEPTH = 4  # Maximum search depth for minimax
 # Evaluation tuning constants
 LOCK_ROW_EDGE_BONUS = 100
 LOCK_ROW_INNER_BONUS = 50
@@ -27,16 +33,23 @@ if DEBUG_LOG:
 else:
     logging.basicConfig(level=logging.WARNING, format='[%(levelname)s] %(message)s')
 
+
 class ReversiAgent:
     def __init__(self):
         self.board_cache = {}
         self.use_parallel_minimax = False
 
+    def calculate_score(self, board):
+        white_score = np.sum(board == 1)
+        black_score = np.sum(board == -1)
+
+        return white_score, black_score
+
     ### UTILITY FUNCTIONS ###
     def get_legal_moves(self, board, player):
         game = reversi()
         game.board = board
-        return [(i, j) for i in range(8) for j in range(8) 
+        return [(i, j) for i in range(8) for j in range(8)
                 if game.step(i, j, player, False) > 0]
 
     def apply_move(self, board, move, player):
@@ -73,9 +86,15 @@ class ReversiAgent:
         """
         piece_count = np.count_nonzero(board)
         if piece_count < 45:
-            corner_value = 20; edge_value = 5; piece_value = 1; mobility_value = 15
+            corner_value = 20;
+            edge_value = 5;
+            piece_value = 1;
+            mobility_value = 15
         else:
-            corner_value = 30; edge_value = 15; piece_value = 2; mobility_value = 5
+            corner_value = 30;
+            edge_value = 15;
+            piece_value = 2;
+            mobility_value = 5
 
         score = 0
         corners = [(0, 0), (0, 7), (7, 0), (7, 7)]
@@ -127,7 +146,7 @@ class ReversiAgent:
         main_diag = np.array([board[i, i] for i in range(8)])
         if np.all(main_diag == player):
             score += LOCK_DIAG_BONUS
-        anti_diag = np.array([board[i, 7-i] for i in range(8)])
+        anti_diag = np.array([board[i, 7 - i] for i in range(8)])
         if np.all(anti_diag == player):
             score += LOCK_DIAG_BONUS
 
@@ -154,6 +173,7 @@ class ReversiAgent:
     # --- Simple Evaluation Fallback (Not used in minimax anymore) ---
     def evaluate(self, board, root_turn):
         return root_turn * np.sum(board)
+
     # --- End Advanced Evaluation ---
 
     ### DYNAMIC INITIAL DEPTH ###
@@ -181,7 +201,8 @@ class ReversiAgent:
             value = -float('inf')
             for move in valid_moves:
                 new_board = self.simulate_move(board, move[0], move[1], turn)
-                score, _ = self.minimax_simple(new_board, -turn, depth - 1, alpha, beta, root_turn, start_time, time_limit)
+                score, _ = self.minimax_simple(new_board, -turn, depth - 1, alpha, beta, root_turn, start_time,
+                                               time_limit)
                 if score > value:
                     value = score
                     best_move = move
@@ -193,7 +214,8 @@ class ReversiAgent:
             value = float('inf')
             for move in valid_moves:
                 new_board = self.simulate_move(board, move[0], move[1], turn)
-                score, _ = self.minimax_simple(new_board, -turn, depth - 1, alpha, beta, root_turn, start_time, time_limit)
+                score, _ = self.minimax_simple(new_board, -turn, depth - 1, alpha, beta, root_turn, start_time,
+                                               time_limit)
                 if score < value:
                     value = score
                     best_move = move
@@ -208,7 +230,8 @@ class ReversiAgent:
         best_score = None
         depth = self.dynamic_initial_depth(board, player)
         while time.time() - start_time < time_limit and depth <= MAX_MINIMAX_DEPTH:
-            score, move = self.minimax_simple(board, player, depth, -float('inf'), float('inf'), player, start_time, time_limit)
+            score, move = self.minimax_simple(board, player, depth, -float('inf'), float('inf'), player, start_time,
+                                              time_limit)
             if move != (-1, -1):
                 best_move = move
                 best_score = score
@@ -236,7 +259,8 @@ class ReversiAgent:
             results = []
             for move in legal_moves:
                 temp_board = self.apply_move(board, move, player)
-                results.append(pool.apply_async(self.run_simulations, args=(temp_board, player, batch_size, start_time, time_limit)))
+                results.append(pool.apply_async(self.run_simulations,
+                                                args=(temp_board, player, batch_size, start_time, time_limit)))
             for idx, move in enumerate(legal_moves):
                 try:
                     result_value = results[idx].get(timeout=remaining_time)
@@ -247,7 +271,8 @@ class ReversiAgent:
             if time.time() - start_time >= time_limit:
                 break
         pool.terminate()
-        logging.debug(f"Total simulation iterations: {total_simulations} (Average per legal move: {total_simulations/len(legal_moves):.2f})")
+        logging.debug(
+            f"Total simulation iterations: {total_simulations} (Average per legal move: {total_simulations / len(legal_moves):.2f})")
         best_move = max(move_scores, key=move_scores.get, default=(-1, -1))
         logging.debug(f"Monte Carlo selected move: {best_move} with score {move_scores.get(best_move, 0)}")
         new_board = self.apply_move(board, best_move, player)
@@ -319,6 +344,7 @@ class ReversiAgent:
             best_move = max(legal_moves, key=lambda m: self.evaluate_board(self.apply_move(board, m, player), player))
         return best_move
 
+
 ### MAIN FUNCTION ###
 def main():
     agent = ReversiAgent()
@@ -337,6 +363,8 @@ def main():
             turn, board = pickle.loads(data)
             if turn == 0:
                 logging.info("Game over. Closing connection.")
+                white_score, black_score = agent.calculate_score(board)
+                logging.info(f"Score: White-{white_score} , Black-{black_score}")
                 break
             legal_moves = agent.get_legal_moves(board, turn)
             if not legal_moves:
@@ -354,6 +382,7 @@ def main():
         logging.error(f"Error during game loop: {e}")
     finally:
         game_socket.close()
+
 
 if __name__ == '__main__':
     main()
